@@ -1,0 +1,245 @@
+---
+title: "Stock Index EDA"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Introduction
+Stock market is considered the primary indicator of a country’s economic strength and development. Stock Market prices are volatile in nature and are affected by factors like inflation, economic growth, etc. Fluctuating stock market affects the investor’s belief and thus there is a need to predict the future stock maket. A stock market index, is an index that measures a stock market, or a subset of the stock market. They provide a big-picture view of whether stock prices are generally moving up, down, or sideways from moment to moment, and by how much. They help investors compare current price levels with past prices to calculate market performance. It is computed from the prices of selected stocks.<br>
+
+The objective of this project is to study the stock market index with quantiative analysis and predict the stock market in order to make more informed and accurate investment decisions. Three stock market index--Dow Jones Industrial Average, S&P 500 and Nasdaq Composite-in the past ten years are surveyed. In the United States, these are the three most broadly followed indexes by both the media and investors. The media most often reports on the direction of the top three indexes regularly throughout the day with key news items serving as contributors and detractors.<br>
+
+We will begin with studying and comparing the three index technically with Explonatory Data Analysis. We will conduct some baseline analysis, including introducing what does each index represented, analyzing historical data, and comparing their trading volume, then we will dive deeper to study the risk, by calculating returns, comparing volatilities, and finding the correlation between each index. Then we build two time series models --ARIMA model and Volatility model-- to predict the index. ARIMA is used for the forecast of closing prices. For each index, several ARIMA models with different parameters are compared based on methodologies, efficiency and prediction results, and then it is represented in the form of a Graph. Different types of Volatility models is build to analyze volatility, such as garch and stochastic volatility, Along with it, we get some new insights from these indexes. 
+
+
+```{r message=FALSE}
+#load packages 
+library(ggplot2)
+library(xts)
+library(dygraphs)
+library(quantmod)
+library(dplyr)
+library(SparkR)
+library(scales)
+library(zoo)
+library(gridExtra)
+library(grid)
+library(forecast)
+library(PerformanceAnalytics)
+library(corrplot)
+library(GGally)
+```
+
+#### Read in dataset
+```{r}
+DJI <- read.csv("DJI.csv")
+NASDAQ <- read.csv("NASDAQ.csv")
+SP500 <- read.csv("SP500.csv")
+```
+
+#### Data Overview
+```{r}
+head(DJI)
+head(NASDAQ)
+head(SP500)
+```
+
+```{r}
+summary(DJI)
+summary(NASDAQ)
+summary(SP500)
+```
+
+#### Data Cleaning (Dataset is clean, so no need for Data Cleaning)
+```{r}
+#check NA
+sum(is.na(DJI))
+sum(is.na(NASDAQ))
+sum(is.na(SP500))
+```
+
+#### Plot interactive stock index time series data 
+```{r}
+DJI$Date <- as.Date(as.character(DJI$Date))
+NASDAQ$Date <- as.Date(as.character(NASDAQ$Date))
+SP500$Date <- as.Date(as.character(SP500$Date))
+
+DJI_xts <- xts(DJI$Close,order.by=DJI$Date,frequency=252)
+NASDAQ_xts <- xts(NASDAQ$Close,order.by=NASDAQ$Date,frequency=252)
+SP500_xts <- xts(SP500$Close,order.by=SP500$Date,frequency=252)
+ 
+stocks <- cbind(DJI_xts,NASDAQ_xts, SP500_xts)
+ 
+dygraph(stocks,ylab="Close", 
+        main="DJI, NASDAQ, and SP500 Index Prices 2009-2019") %>%
+  dySeries("DJI_xts",label="DJI") %>%
+  dySeries("NASDAQ_xts",label="NASDAQ") %>%
+  dySeries("SP500_xts",label="SP500") %>%
+  dyOptions(colors = c("blue","brown", "darkgreen")) %>%
+  dyRangeSelector()
+```
+
+For this interactive plot above, we can zoom in to see details of stock price within a smaller period range, and zoom out to see the whole trend of the stock history. If you hover your mouse on it, you can also see the spesific price of each stock each day. In a borader picture, we can notice an upward trend of each stock index within the past 10 years. And DJI has a significanlty higher index level than that of NASDAQ and SP500. That's because the "Dow" includes only 30 stocks, all of which are among the largest, richest and most heavily traded companies in the United States, and also becauae DJI is price-weighted, therefore, DJ is affected only by changes in the stock prices, so companies with a higher share price or a more extreme price movement have a greater effect on the Dow. 
+
+S&P 500 is more encompassing, as it is based on a larger sample of total U.S. stocks. Stocks in the S&P 500 are weighted by their market value rather than their stock prices. In this way, the S&P 500 attempts to ensure that a 10% change in a $20 stock will affect the index in the same way as a 10% change in a 50 dollor stock will. 
+
+The Nasdaq represents the largest non-financial companies listed on the Nasdaq exchange and is generally regarded as a technology index given the heavy weighting given to tech-based companies.
+
+### Trading Volumn of each index. 
+```{r warning=FALSE, message=FALSE}
+#date <- as.Date(as.character(DJI$Date))
+date <- as.Date(DJI$Date, format = '%d-%B-%y')
+DJI.vol <- DJI$Volume/1000000
+NASDAQ.vol <- NASDAQ$Volume/1000000
+SP500.vol <- SP500$Volume/1000000
+
+Volumn <- data.frame(date, DJI.vol, NASDAQ.vol, SP500.vol)
+Volumn <- Volumn[lubridate::year(Volumn$date) %in% c(2009:2019), ]
+head(Volumn)
+
+# labels and breaks for X axis text
+brks <- Volumn$date[seq(1, length(Volumn$date), 252)]
+lbls <- lubridate::year(brks)
+
+#plot
+ggplot(Volumn, aes(x=date)) +  ylim(0, 12000) +
+  geom_area(aes(y=DJI.vol+NASDAQ.vol+SP500.vol, fill="SP500")) +
+  geom_area(aes(y=DJI.vol+NASDAQ.vol, fill="NASDAQ")) +
+  geom_area(aes(y=DJI.vol, fill="DJI")) +
+  labs(title = "Trading Volumn of DJI, NASDAQ, and SP500", y ="Volumn (in Million)") +
+  scale_x_date(labels = lbls, breaks = brks)
+```
+
+SP500 represents the broadest measure of the U.S. economy among the three major indices. The index includes 500 companies from all sectors of the economy with stocks listed on either the New York Stock Exchange or the Nasdaq. Combined, the companies in the S&P 500 account for about 75 percent of all U.S. stock.
+Since the Dow only represents 30, its total trading volumn is obvisously take a much lower portion on the market. 
+
+
+### What was the daily return of each stock index?
+Now that we've done some baseline analysis, let's go ahead and dive a little deeper. We're now going to analyze the risk of the stock. In order to do so we'll need to take a closer look at the daily changes of the stock, and not just its absolute value.
+```{r}
+#Create a column for return
+DJI$return <- Delt(DJI$Close)
+NASDAQ$return <- Delt(NASDAQ$Close)
+SP500$return <- Delt(SP500$Close)
+```
+
+```{r message=FALSE, warning=FALSE}
+date <- as.Date(DJI$Date, format = '%d-%B-%y')
+DJI.return <- DJI$return*100
+NASDAQ.return <- NASDAQ$return*100
+SP500.return <- SP500$return*100
+
+Return <- data.frame(date, DJI.return, NASDAQ.return, SP500.return)
+Return <- Return[lubridate::year(Return$date) %in% c(2009:2019), ]
+colnames(Return) <- c("date", "DJI.return", "NASDAQ.return", "SP500.return")
+head(Return)
+
+# labels and breaks for X axis text
+brks <- Return$date[seq(1, length(Return$date), 252)]
+lbls <- lubridate::year(brks)
+
+#plot DJI return
+DJI.retn <- ggplot(Return, aes(x=date)) + ylim(-7, 7) +
+  geom_line(aes(y=as.numeric(DJI.return), col="DJI.return")) + 
+  labs(title="Time Series of DJI Returns Percentage", 
+       y="Returns %")  +  # title 
+  scale_color_manual(values = "blue") +
+  scale_x_date(labels = lbls, breaks = brks)   # change to monthly ticks and labels
+
+#plot NASDAQ return
+NASDAQ.retn <- ggplot(Return, aes(x=date)) + ylim(-7, 7) +
+  geom_line(aes(y=as.numeric(NASDAQ.return), col="NASDAQ.return")) + 
+  labs(title="Time Series of NASDAQ Returns Percentage", 
+       y="Returns %")  +  # title 
+  scale_color_manual(values = "brown") +
+  scale_x_date(labels = lbls, breaks = brks)   # change to monthly ticks and labels
+
+#plot SP500 return
+SP500.retn <- ggplot(Return, aes(x=date)) + ylim(-7, 7) +
+  geom_line(aes(y=as.numeric(SP500.return), col="SP500.return")) + 
+  labs(title="Time Series of SP500 Returns Percentage", 
+       y="Returns %")  +  # title 
+  scale_color_manual(values = "darkgreen") +
+  scale_x_date(labels = lbls, breaks = brks)   # change to monthly ticks and labels
+
+grid.arrange(DJI.retn, NASDAQ.retn, SP500.retn, nrow=3, ncol=1)
+
+```
+
+```{r}
+#Calculate volitility
+StdDev(as.double(DJI.return), na.rm = FALSE)
+StdDev(as.double(NASDAQ.return), na.rm = FALSE)
+StdDev(as.double(SP500.return), na.rm = FALSE)
+```
+
+Regarding volatility, the Dow Jones is the least volatile of the three major indices as many components are slower moving, blue-chip companies such as Boeing Company, United Healthcare, and 3M Company. The Nasdaq 100 is the most volatile of the three largely because of its high concentration in riskier, high growth companies such as Facebook, Amazon, and Alphabet (Google). Volatility in the S&P 500 is typically somewhere between the two.
+
+
+```{r warning=FALSE}
+#plot DJI return distribution
+DJI.dist <- ggplot(data.frame(DJI), aes(x=return)) + 
+ labs(y= "Number of Days", x = "Daily Return") + xlim(-0.05, 0.05) +
+ geom_histogram(aes(y=..density..), colour="black", fill="white", bins = 100, title="DJI")+
+ geom_density(alpha=.2, fill="#FF6666")  +
+ geom_vline(aes(xintercept=0), color="black", linetype="dashed", size=1) +
+ ggtitle("DJI Daily Return Distribution")
+ 
+#plot NASDAQ return distribution
+NASDAQ.dist <- ggplot(data.frame(NASDAQ), aes(x=return)) + 
+ labs(y= "Number of Days", x = "Daily Return") + xlim(-0.05, 0.05) +
+ geom_histogram(aes(y=..density..), colour="black", fill="white", bins = 100)+
+ geom_density(alpha=.2, fill="#FF6666")  +
+ geom_vline(aes(xintercept=0), color="black", linetype="dashed", size=1) +
+ ggtitle("NASDAQ Daily Return Distribution")
+
+#plot SP500 return distribution
+SP500.dist <- ggplot(data.frame(SP500), aes(x=return)) + 
+ labs(y= "Number of Days", x = "Daily Return") + xlim(-0.05, 0.05) +
+ geom_histogram(aes(y=..density..), colour="black", fill="white", bins = 100)+
+ geom_density(alpha=.2, fill="#FF6666")  +
+ geom_vline(aes(xintercept=0), color="black", linetype="dashed", size=1)+
+ ggtitle("SP500 Daily Return Distribution")
+
+grid.arrange(DJI.dist, NASDAQ.dist, SP500.dist, nrow=3, ncol=1)
+
+```
+
+
+### What was the correlation between different index's closing price? 
+Correlation can be used to gain perspective on the overall nature of the larger market. We applied pearson correlation to calculate correlation between those three stock index. Formulas that calculate correlation can predict how two stock index might perform relative to each other in the future. Applied to historical prices, correlation can help determine if stocks' index prices tend to move with or against each other. Using the correlation tool, investors might even be able to select stocks that complement each other in terms of price movement. This can help reduce the overall risk and increase the overall potential return of a portfolio. 
+```{r}
+head(Return)
+cor(Return[, -1], method="pearson", use = "complete.obs")
+chart.Correlation(Return[, -1], method="pearson",hist.col = "#00AFBB")
+```
+
+The above plots show significant correlation between those three stock index. Each pair exhibit 91%, 95% and 97% degree of correlation, which means that they all moved basically in lockstep with each other. It indicates that the market in general move in the same direction, because they track companies impacted by the same business cycle and other important macroeconomic factors.
+
+
+
+### Decomposing Time Series
+```{r}
+DJI.ts <- ts(DJI$Close, start=2009, frequency=252)
+DJI_decomp <- decompose(DJI.ts)
+plot(DJI_decomp, col = "blue")
+
+NASDAQ.ts <- ts(NASDAQ$Close, start=2009, frequency=252)
+NASDAQ_decomp <- decompose(NASDAQ.ts)
+plot(NASDAQ_decomp, col = "brown")
+
+SP500.ts <- ts(SP500$Close, start=2009, frequency=252)
+SP500_decomp <- decompose(SP500.ts)
+plot(SP500_decomp, col = "darkgreen")
+```
+
+### Seasonality Plot
+```{r}
+ggseasonplot(DJI.ts) + labs(title="Seasonal plot: DJI")
+ggseasonplot(NASDAQ.ts) + labs(title="Seasonal plot: NASDAQ")
+ggseasonplot(SP500.ts) + labs(title="Seasonal plot: SP500")
+```
+
+
+
